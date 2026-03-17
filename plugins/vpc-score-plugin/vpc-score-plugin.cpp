@@ -10,7 +10,6 @@
 #include <string>
 #include <vector>
 #include <fstream>
-#include <filesystem>
 #include <cstdint>
 #include <sstream>
 #include <iomanip>
@@ -37,7 +36,6 @@ typedef int socklen_t;
 #else
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <sys/stat.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
@@ -53,6 +51,17 @@ typedef int SOCKET;
 
 #ifndef _WIN32
 #define sprintf_s snprintf
+#endif
+
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <dirent.h>
+#include <sys/stat.h>
+#endif
+
+#ifndef PLUGIN_VERSION
+#define PLUGIN_VERSION "dev"
 #endif
 
 namespace VpcScorePlugin
@@ -441,7 +450,7 @@ namespace VpcScorePlugin
                      // Send connected event
                      std::stringstream cm;
                      cm << "{\"type\":\"connected\",\"timestamp\":\"" << getTimestamp()
-                        << "\",\"server\":\"vpc-score-plugin\",\"version\":\"1.0\""
+                        << "\",\"server\":\"vpc-score-plugin\",\"version\":\"" << PLUGIN_VERSION << "\""
                         << (currentRomName.empty() ? "" : ",\"rom\":\"" + currentRomName + "\"")
                         << "}";
                      sendWsFrame(clientSocket, cm.str());
@@ -1214,6 +1223,75 @@ namespace VpcScorePlugin
       return ss.str();
    }
 
+   std::string getMostRecentNvramRom()
+   {
+#ifdef _WIN32
+      const char *appdata = std::getenv("APPDATA");
+      if (!appdata)
+         return "";
+      std::string nvramDir = std::string(appdata) + "\\VPinMAME\\nvram";
+      std::string pattern = nvramDir + "\\*.nv";
+
+      WIN32_FIND_DATAA ffd;
+      HANDLE hFind = FindFirstFileA(pattern.c_str(), &ffd);
+      if (hFind == INVALID_HANDLE_VALUE)
+         return "";
+
+      std::string bestFile;
+      FILETIME bestTime = {0, 0};
+      do
+      {
+         if (ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+            continue;
+         if (CompareFileTime(&ffd.ftLastWriteTime, &bestTime) > 0)
+         {
+            bestTime = ffd.ftLastWriteTime;
+            bestFile = ffd.cFileName;
+         }
+      } while (FindNextFileA(hFind, &ffd));
+      FindClose(hFind);
+
+      if (bestFile.size() > 3)
+         bestFile = bestFile.substr(0, bestFile.size() - 3);
+      return bestFile;
+
+#else
+      const char *home = std::getenv("HOME");
+      if (!home)
+         return "";
+      std::string nvramDir = std::string(home) + "/.vpinmame/nvram";
+
+      DIR *dir = opendir(nvramDir.c_str());
+      if (!dir)
+         return "";
+
+      std::string bestFile;
+      time_t bestTime = 0;
+      struct dirent *entry;
+
+      while ((entry = readdir(dir)) != nullptr)
+      {
+         std::string name(entry->d_name);
+         if (name.size() < 4)
+            continue;
+         if (name.substr(name.size() - 3) != ".nv")
+            continue;
+
+         std::string fullPath = nvramDir + "/" + name;
+         struct stat st;
+         if (stat(fullPath.c_str(), &st) != 0)
+            continue;
+         if (st.st_mtime > bestTime)
+         {
+            bestTime = st.st_mtime;
+            bestFile = name.substr(0, name.size() - 3);
+         }
+      }
+      closedir(dir);
+      return bestFile;
+#endif
+   }
+
    ///////////////////////////////////////////////////////////////////////////////
    // VPX event handlers
    ///////////////////////////////////////////////////////////////////////////////
@@ -1221,13 +1299,33 @@ namespace VpcScorePlugin
    void onGameStart(const unsigned int eventId, void * /*userData*/, void *eventData)
    {
       LOGI("onGameStart fired — eventId=%u eventData=%p", eventId, eventData);
-      CtlOnGameStartMsg *msg = static_cast<CtlOnGameStartMsg *>(eventData);
-      if (!msg || !msg->gameId)
+
+      std::string romName;
+
+      if (eventData)
       {
-         LOGW("onGameStart: null msg or gameId");
-         return;
+         CtlOnGameStartMsg *msg = static_cast<CtlOnGameStartMsg *>(eventData);
+         if (!msg->gameId)
+         {
+            LOGW("onGameStart: null gameId");
+            return;
+         }
+         romName = msg->gameId;
       }
-      currentRomName = msg->gameId;
+      else
+      {
+         // VPX namespace event has no ROM data — find most recently modified .nv file
+         LOGI("onGameStart: null eventData — scanning nvram directory for active ROM");
+         romName = getMostRecentNvramRom();
+         if (romName.empty())
+         {
+            LOGW("onGameStart: could not determine ROM name");
+            return;
+         }
+         LOGI("onGameStart: inferred ROM from nvram: %s", romName.c_str());
+      }
+
+      currentRomName = romName;
       gameStartTime = std::chrono::steady_clock::now();
       previousScores.clear();
       previousPlayerCount = 0;

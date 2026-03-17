@@ -54,12 +54,24 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Configure CMake
+      - name: Determine version
+        id: version
         run: |
-          cmake -B build-linux \
-            -DBUILD_SHARED=ON \
-            -DPluginPlatform=linux \
-            -DCMAKE_BUILD_TYPE=Release
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            VERSION="0.0.0"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Configure CMake (x64)
+        run: |
+          cmake -B build-x64 -A x64 `
+            -DBUILD_SHARED=ON `
+            -DPluginPlatform=windows `
+            -DPluginArch=x64 `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DPLUGIN_VERSION="${{ steps.version.outputs.version }}"
 
       - name: Build
         run: cmake --build build-linux --config Release
