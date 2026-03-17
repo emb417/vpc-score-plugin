@@ -1,14 +1,12 @@
 cmake_minimum_required(VERSION 3.20)
 project(VpcScorePlugin)
 
-# Inject version from git tag or fallback
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_C_STANDARD 99)
+
 if(NOT DEFINED PLUGIN_VERSION)
    set(PLUGIN_VERSION "0.0.0")
 endif()
-target_compile_definitions(VpcScorePlugin PRIVATE PLUGIN_VERSION="${PLUGIN_VERSION}")
-
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_C_STANDARD 99)
 
 set(PLUGIN_SOURCES
    plugins/vpc-score-plugin/vpc-score-plugin.cpp
@@ -16,6 +14,9 @@ set(PLUGIN_SOURCES
 
 if(BUILD_SHARED OR NOT DEFINED BUILD_SHARED)
    add_library(VpcScorePlugin MODULE ${PLUGIN_SOURCES})
+
+   # Version define must come after add_library
+   target_compile_definitions(VpcScorePlugin PRIVATE PLUGIN_VERSION="${PLUGIN_VERSION}")
 
    target_include_directories(VpcScorePlugin PUBLIC
       plugins/vpc-score-plugin/include
