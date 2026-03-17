@@ -69,6 +69,8 @@ namespace VpcScorePlugin
    unsigned int onGameStartId = 0;
    unsigned int onGameEndId = 0;
    unsigned int onPrepareFrameId = 0;
+   unsigned int vpxGameStartId = 0;
+   unsigned int vpxGameEndId = 0;
 
    LPI_IMPLEMENT // logging support
 
@@ -1216,11 +1218,15 @@ namespace VpcScorePlugin
    // VPX event handlers
    ///////////////////////////////////////////////////////////////////////////////
 
-   void onGameStart(const unsigned int /*eventId*/, void * /*userData*/, void *eventData)
+   void onGameStart(const unsigned int eventId, void * /*userData*/, void *eventData)
    {
+      LOGI("onGameStart fired — eventId=%u eventData=%p", eventId, eventData);
       CtlOnGameStartMsg *msg = static_cast<CtlOnGameStartMsg *>(eventData);
       if (!msg || !msg->gameId)
+      {
+         LOGW("onGameStart: null msg or gameId");
          return;
+      }
       currentRomName = msg->gameId;
       gameStartTime = std::chrono::steady_clock::now();
       previousScores.clear();
@@ -1268,10 +1274,11 @@ namespace VpcScorePlugin
 
    void onPrepareFrame(const unsigned int /*eventId*/, void * /*userData*/, void * /*eventData*/)
    {
+      static int frameCount = 0;
+      if (++frameCount % 300 == 1)
+         LOGI("onPrepareFrame firing — frame=%d rom=%s mapPath=%s", frameCount, currentRomName.c_str(), currentMapPath.c_str());
       if (currentMapPath.empty())
          return;
-      if (wsClients.empty())
-         return; // no listeners — skip disk I/O
 
       // Read .nv file from disk
       if (!readNvramFromDisk(currentRomName, nvramData))
@@ -1391,10 +1398,14 @@ MSGPI_EXPORT void MSGPIAPI VpcScorePluginLoad(const uint32_t sessionId, const Ms
    }
 #endif
 
-   // Subscribe to game lifecycle events
+   // Subscribe to game lifecycle events via Controller namespace (PinMAME)
    msgApi->SubscribeMsg(endpointId, onGameStartId = msgApi->GetMsgID(CTLPI_NAMESPACE, CTLPI_EVT_ON_GAME_START), onGameStart, nullptr);
    msgApi->SubscribeMsg(endpointId, onGameEndId = msgApi->GetMsgID(CTLPI_NAMESPACE, CTLPI_EVT_ON_GAME_END), onGameEnd, nullptr);
+   // Also subscribe via VPX namespace in case the event fires there instead
+   msgApi->SubscribeMsg(endpointId, vpxGameStartId = msgApi->GetMsgID(VPXPI_NAMESPACE, VPXPI_EVT_ON_GAME_START), onGameStart, nullptr);
+   msgApi->SubscribeMsg(endpointId, vpxGameEndId = msgApi->GetMsgID(VPXPI_NAMESPACE, VPXPI_EVT_ON_GAME_END), onGameEnd, nullptr);
    msgApi->SubscribeMsg(endpointId, onPrepareFrameId = msgApi->GetMsgID(VPXPI_NAMESPACE, VPXPI_EVT_ON_PREPARE_FRAME), onPrepareFrame, nullptr);
+   LOGI("Subscribed to game events on both Controller and VPX namespaces");
 
    // Get VPX API (not currently used but good practice to hold)
    getVpxApiId = msgApi->GetMsgID(VPXPI_NAMESPACE, VPXPI_MSG_GET_API);
@@ -1436,10 +1447,14 @@ MSGPI_EXPORT void MSGPIAPI VpcScorePluginUnload()
 
    msgApi->UnsubscribeMsg(onGameStartId, onGameStart);
    msgApi->UnsubscribeMsg(onGameEndId, onGameEnd);
+   msgApi->UnsubscribeMsg(vpxGameStartId, onGameStart);
+   msgApi->UnsubscribeMsg(vpxGameEndId, onGameEnd);
    msgApi->UnsubscribeMsg(onPrepareFrameId, onPrepareFrame);
    msgApi->ReleaseMsgID(getVpxApiId);
    msgApi->ReleaseMsgID(onGameStartId);
    msgApi->ReleaseMsgID(onGameEndId);
+   msgApi->ReleaseMsgID(vpxGameStartId);
+   msgApi->ReleaseMsgID(vpxGameEndId);
    msgApi->ReleaseMsgID(onPrepareFrameId);
 
    msgApi = nullptr;
