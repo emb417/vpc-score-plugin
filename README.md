@@ -1,6 +1,8 @@
 # vpc-score-plugin
 
-A VPX plugin that reads live game state from NVRAM and broadcasts score events via a local WebSocket server on `127.0.0.1:3131`. Designed to work alongside [vpc-score-agent](https://github.com/emb417/vpc-score-agent), which consumes these events and forwards them to the VPC Data API.
+A VPX plugin that reads live game state from NVRAM and broadcasts score events via a local WebSocket server on `127.0.0.1:3123`. Designed to work alongside [vpc-score-agent](https://github.com/emb417/vpc-score-agent), which consumes these events and forwards them to the VPC Data API.
+
+> **No PinMAME patch required.** Unlike score-server, this plugin reads NVRAM from `.nv` files on disk rather than accessing the PinMAME Controller directly in memory. No modifications to the PinMAME plugin are needed.
 
 ---
 
@@ -16,8 +18,8 @@ A VPX plugin that reads live game state from NVRAM and broadcasts score events v
 
 ## Prerequisites
 
-- VPinballX 10.8+ (BGFX or DX build)
-- PinMAME installed (provides the `.nv` NVRAM files the plugin reads)
+- VPinballX 10.8.1+ (BGFX or DX build)
+- PinMAME installed and configured — it writes the `.nv` NVRAM files the plugin reads
 - [vpc-score-agent](https://github.com/emb417/vpc-score-agent) running alongside VPX (launched via PinUp Popper open script)
 
 ---
@@ -30,13 +32,13 @@ Download the latest `vpc-score-plugin-windows.zip` from the [Releases](../../rel
 
 ### Step 2: Extract to the VPX plugins folder
 
-Locate your VPX executable — on a typical Baller Installer cabinet this is:
+Locate your VPX executable. On a typical Baller Installer cabinet this is:
 
 ```bash
-C:\vPinball\VisualPinball\VPinballX_BGFX64.exe
+C:\vPinball\VisualPinball\VPinballX_BGFX.exe
 ```
 
-Create a `plugins` folder next to the exe if it doesn't already exist, then extract the zip contents into a `vpc-score-plugin` subfolder:
+A `plugins` folder should already exist next to the exe. Extract the zip contents into a `vpc-score-plugin` subfolder:
 
 ```bash
 C:\vPinball\VisualPinball\plugins\vpc-score-plugin\
@@ -45,23 +47,46 @@ C:\vPinball\VisualPinball\plugins\vpc-score-plugin\
   nvram-maps\
 ```
 
-> The `plugins` folder must be in the same directory as the VPX executable that PinUp Popper launches. To confirm which exe is running, check Task Manager while a table is active.
+> The `plugins` folder must be in the same directory as the VPX executable that PinUp Popper launches. To confirm which exe is active, open Task Manager while a table is running and look for the VPX process name.
 
-### Step 3: Verify the plugin loaded
+### Step 3: Enable the plugin in VPinballX.ini
 
-Launch VPX and open a table. Enable logging in VPX via **Preferences → Editor → Enable Log**. Check `%AppData%\VPinballX\VPinballX.log` for:
+Open your VPX settings file. On a Baller Installer cabinet with VPX 10.8 it is located at:
 
 ```bash
+C:\Users\<YourName>\AppData\Roaming\VPinballX\10.8\VPinballX.ini
+```
+
+Add the following section:
+
+```ini
+[Plugin.VpcScore]
+Enable = 1
+```
+
+### Step 4: Verify the plugin loaded
+
+Enable logging in VPX via **Preferences → Editor → Enable Log**, then launch a table. Check the log at:
+
+```bash
+C:\Users\<YourName>\AppData\Roaming\VPinballX\10.8\VPinballX.log
+```
+
+You should see:
+
+```bash
+Plugin VpcScore was found but is disabled   ← before enabling
+Plugin VpcScore loaded                      ← after enabling
 VPC Score Plugin loading
 NVRAM maps path: ...
-WebSocket server listening on 127.0.0.1:3131
+WebSocket server listening on 127.0.0.1:3123 (loopback only)
 ```
 
 ---
 
 ## WebSocket event contract
 
-The plugin broadcasts JSON events on `ws://127.0.0.1:3131`. All events share a common envelope:
+The plugin broadcasts JSON events on `ws://127.0.0.1:3123`. All events share a common envelope:
 
 | Field       | Description                     |
 | ----------- | ------------------------------- |
@@ -136,7 +161,7 @@ Sent when game over is detected, either via NVRAM flag (primary) or ball-drop fa
 
 ## NVRAM map coverage
 
-Score extraction requires an NVRAM map for the ROM being played. Maps are provided by the bundled [pinmame-nvram-maps](https://github.com/tomlogic/pinmame-nvram-maps) submodule. Coverage spans hundreds of ROMs including most popular Williams, Bally, Stern, and Sega titles.
+Score extraction requires an NVRAM map for the ROM being played. Maps are provided by the bundled [pinmame-nvram-maps](https://github.com/tomlogic/pinmame-nvram-maps) submodule, covering hundreds of ROMs including most popular Williams, Bally, Stern, and Sega titles.
 
 If no map exists for a ROM, `game_start` and `game_end` events are still emitted but `current_scores` will not be broadcast and scores in `game_end` will be empty. The VPX log will include:
 
