@@ -1375,7 +1375,7 @@ MSGPI_EXPORT void MSGPIAPI VpcScorePluginLoad(const uint32_t sessionId, const Ms
 
    nvramMapsPath = pluginDir + "/nvram-maps";
    struct stat st;
-   if (stat(nvramMapsPath.c_str(), &st) != 0 || !S_ISDIR(st.st_mode))
+   if (stat(nvramMapsPath.c_str(), &st) != 0 || !(st.st_mode & S_IFDIR))
    {
       LOGE("nvram-maps directory not found at: %s", nvramMapsPath.c_str());
       return;
