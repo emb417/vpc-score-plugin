@@ -1,0 +1,124 @@
+name: Build and Release VPC Score Plugin
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag (overrides push tag)"
+        required: false
+        default: ""
+
+jobs:
+  build-windows:
+    name: Build Windows DLL
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive # pulls in nvram-maps submodule
+
+      - name: Configure CMake (x64)
+        run: |
+          cmake -B build-x64 -A x64 `
+            -DBUILD_SHARED=ON `
+            -DPluginPlatform=windows `
+            -DPluginArch=x64 `
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build (x64)
+        run: cmake --build build-x64 --config Release
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vpc-score-plugin-windows
+          path: build-x64/plugins/vpc-score-plugin/
+
+  build-linux:
+    name: Build Linux SO
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Configure CMake
+        run: |
+          cmake -B build-linux \
+            -DBUILD_SHARED=ON \
+            -DPluginPlatform=linux \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build-linux --config Release
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vpc-score-plugin-linux
+          path: build-linux/plugins/vpc-score-plugin/
+
+  release:
+    name: Create Release
+    needs: [build-windows, build-linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Determine release tag
+        id: tagger
+        run: |
+          if [ -n "${{ github.event.inputs.release_tag }}" ]; then
+            echo "tag=${{ github.event.inputs.release_tag }}" >> $GITHUB_OUTPUT
+          elif [[ "${GITHUB_REF##*/}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "tag=${GITHUB_REF##*/}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=unreleased-${GITHUB_SHA::8}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: vpc-score-plugin-windows
+          path: artifact/windows/
+
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: vpc-score-plugin-linux
+          path: artifact/linux/
+
+      - name: Package release zips
+        run: |
+          cd artifact/windows && zip -r ../../vpc-score-plugin-windows.zip . && cd ../..
+          cd artifact/linux   && zip -r ../../vpc-score-plugin-linux.zip   . && cd ../..
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tagger.outputs.tag }}
+          name: Release ${{ steps.tagger.outputs.tag }}
+          body: |
+            Auto-generated release for ${{ steps.tagger.outputs.tag }}
+            See CHANGELOG.md for details.
+          files: |
+            vpc-score-plugin-windows.zip
+            vpc-score-plugin-linux.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

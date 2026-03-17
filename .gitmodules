@@ -1,0 +1,3 @@
+[submodule "nvram-maps"]
+	path = nvram-maps
+	url = ../../tomlogic/pinmame-nvram-maps.git
