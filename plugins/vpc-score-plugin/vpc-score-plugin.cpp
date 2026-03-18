@@ -1012,6 +1012,57 @@ namespace VpcScorePlugin
    }
 
    ///////////////////////////////////////////////////////////////////////////////
+   // VPX stores .nv files alongside the ROM
+   ///////////////////////////////////////////////////////////////////////////////
+
+   std::string getVPinMAMENvramPath()
+   {
+#ifdef _WIN32
+      HKEY hKey = nullptr;
+      // Try 64-bit hive first (modern VPinMAME), fall back to 32-bit
+      if (RegOpenKeyExA(HKEY_CURRENT_USER, "SOFTWARE\\Freeware\\Visual PinMame", 0, KEY_READ, &hKey) != ERROR_SUCCESS)
+         RegOpenKeyExA(HKEY_CURRENT_USER, "SOFTWARE\\Freeware\\Visual PinMame", 0, KEY_READ | KEY_WOW64_32KEY, &hKey);
+
+      if (hKey != nullptr)
+      {
+         char path[MAX_PATH];
+         DWORD size = sizeof(path);
+         // Try dedicated nvram_directory value first
+         if (RegQueryValueExA(hKey, "nvram_directory", nullptr, nullptr, (LPBYTE)path, &size) == ERROR_SUCCESS)
+         {
+            RegCloseKey(hKey);
+            LOGI("getVPinMAMENvramPath: found nvram_directory=%s", path);
+            return std::string(path);
+         }
+         // Fall back to deriving from rompath
+         size = sizeof(path);
+         if (RegQueryValueExA(hKey, "rompath", nullptr, nullptr, (LPBYTE)path, &size) == ERROR_SUCCESS)
+         {
+            RegCloseKey(hKey);
+            std::string romPath(path);
+            size_t last = romPath.find_last_of("\\/");
+            std::string base = (last != std::string::npos) ? romPath.substr(0, last) : romPath;
+            std::string nvramPath = base + "\\nvram";
+            LOGI("getVPinMAMENvramPath: derived from rompath=%s -> %s", path, nvramPath.c_str());
+            return nvramPath;
+         }
+         RegCloseKey(hKey);
+      }
+      LOGW("getVPinMAMENvramPath: registry lookup failed, falling back to APPDATA");
+      // Fallback to APPDATA
+      const char *appdata = std::getenv("APPDATA");
+      if (appdata)
+         return std::string(appdata) + "\\VPinMAME\\nvram";
+      return "";
+#else
+      const char *home = std::getenv("HOME");
+      if (!home)
+         return "";
+      return std::string(home) + "/.vpinmame/nvram";
+#endif
+   }
+
+   ///////////////////////////////////////////////////////////////////////////////
    // Read NVRAM from disk (.nv file) — fallback path
    ///////////////////////////////////////////////////////////////////////////////
 
